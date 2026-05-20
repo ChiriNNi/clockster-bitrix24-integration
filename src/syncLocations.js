@@ -10,8 +10,13 @@ export async function syncLocations({
   mappingStore,
   dryRun,
   titleMax,
+  onlyBitrixIds = [],
 }) {
-  const bitrixLocations = await bitrixClient.getActiveLocations();
+  const allBitrixLocations = await bitrixClient.getActiveLocations();
+  const onlySet = new Set(onlyBitrixIds.map(String));
+  const bitrixLocations = onlySet.size
+    ? allBitrixLocations.filter((location) => onlySet.has(location.bitrixId))
+    : allBitrixLocations;
   const validBitrixLocations = [];
   const skipped = [];
 
@@ -109,7 +114,11 @@ export async function syncLocations({
 
   return {
     mode: dryRun ? "dry-run" : "sync",
+    filters: {
+      onlyBitrixIds,
+    },
     counts: {
+      bitrixAll: allBitrixLocations.length,
       bitrix: bitrixLocations.length,
       bitrixValid: validBitrixLocations.length,
       clockster: clocksterLocations.length,

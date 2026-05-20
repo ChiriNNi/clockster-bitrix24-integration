@@ -29,6 +29,17 @@ npm run dry-run
 
 `dry-run` ничего не меняет в Clockster, только создает отчет в `logs/`.
 
+## Проверка на одном адресе
+
+Чтобы не менять массово Clockster, можно ограничить запуск одним или несколькими Bitrix ID:
+
+```bash
+npm run dry-run -- --only-bitrix-id=3959997
+npm run sync -- --only-bitrix-id=3959997
+```
+
+Повторный `dry-run` по тому же ID должен показать `Created: 0` и `Updated: 0`.
+
 ## Реальный запуск
 
 ```bash

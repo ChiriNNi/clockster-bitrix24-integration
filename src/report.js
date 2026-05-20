@@ -11,7 +11,13 @@ export function writeReport(report) {
 
 export function printSummary(report) {
   console.log(`Mode: ${report.mode}`);
+  if (report.filters?.onlyBitrixIds?.length) {
+    console.log(`Filter Bitrix IDs: ${report.filters.onlyBitrixIds.join(", ")}`);
+  }
   console.log(`Bitrix active locations: ${report.counts.bitrix}`);
+  if (report.counts.bitrixAll !== report.counts.bitrix) {
+    console.log(`Bitrix active locations total: ${report.counts.bitrixAll}`);
+  }
   console.log(`Clockster locations: ${report.counts.clockster}`);
   console.log(`Created: ${report.created.length}`);
   console.log(`Updated: ${report.updated.length}`);

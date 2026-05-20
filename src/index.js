@@ -8,6 +8,7 @@ import { syncLocations } from "./syncLocations.js";
 const args = new Set(process.argv.slice(2));
 const bitrixOnly = args.has("--bitrix-only");
 const dryRun = args.has("--dry-run") || (!args.has("--sync") && process.env.SYNC_MODE !== "sync");
+const onlyBitrixIds = getCsvArg("--only-bitrix-id");
 
 try {
   const config = getConfig({ bitrixOnly });
@@ -29,6 +30,7 @@ try {
     mappingStore,
     dryRun,
     titleMax: config.clockster.titleMax,
+    onlyBitrixIds,
   });
 
   report.reportPath = writeReport(report);
@@ -38,4 +40,23 @@ try {
 } catch (error) {
   console.error(error.stack || error.message);
   process.exit(1);
+}
+
+function getCsvArg(name) {
+  const prefix = `${name}=`;
+  const values = [];
+
+  for (let index = 2; index < process.argv.length; index += 1) {
+    const arg = process.argv[index];
+    if (arg.startsWith(prefix)) {
+      values.push(...arg.slice(prefix.length).split(","));
+      continue;
+    }
+    if (arg === name && process.argv[index + 1]) {
+      values.push(...process.argv[index + 1].split(","));
+      index += 1;
+    }
+  }
+
+  return values.map((value) => value.trim()).filter(Boolean);
 }
