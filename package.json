@@ -1,0 +1,14 @@
+{
+  "name": "clockster-bitrix-sync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dry-run": "node src/index.js --dry-run",
+    "sync": "node src/index.js --sync",
+    "bitrix:test": "node src/index.js --bitrix-only"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
