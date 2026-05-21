@@ -6,6 +6,7 @@
   "scripts": {
     "audit": "node src/auditComparison.js",
     "audit:realization": "node src/auditRealizationComparison.js",
+    "audit:clockster": "node src/auditClocksterInventory.js",
     "rename:realization": "node src/renameByRealization.js",
     "rename:realization:all": "node src/renameAllByRealization.js",
     "dry-run": "node src/index.js --dry-run",
