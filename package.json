@@ -7,10 +7,12 @@
     "audit": "node src/auditComparison.js",
     "audit:realization": "node src/auditRealizationComparison.js",
     "audit:clockster": "node src/auditClocksterInventory.js",
+    "audit:deals": "node src/dealLocationSync.js",
     "rename:realization": "node src/renameByRealization.js",
     "rename:realization:all": "node src/renameAllByRealization.js",
     "dry-run": "node src/index.js --dry-run",
     "sync": "node src/index.js --sync",
+    "sync:deals": "node src/dealLocationSync.js",
     "bitrix:test": "node src/index.js --bitrix-only"
   },
   "engines": {

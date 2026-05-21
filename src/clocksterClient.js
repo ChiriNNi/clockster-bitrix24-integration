@@ -40,11 +40,46 @@ export class ClocksterClient {
     });
   }
 
+  async createLocationFromPayload(payload) {
+    const body = new FormData();
+    body.set("title", payload.title);
+    body.set("description", payload.description);
+    if (payload.latitude && payload.longitude) {
+      body.set("latitude", String(payload.latitude));
+      body.set("longitude", String(payload.longitude));
+    }
+    if (payload.radius) body.set("radius", String(payload.radius));
+
+    return this.request(`${this.config.apiBase}/locations`, {
+      method: "POST",
+      body,
+    });
+  }
+
   async updateLocation(clocksterId, bitrixLocation) {
     const body = new URLSearchParams();
     body.set("title", bitrixLocation.title);
     body.set("description", bitrixMarker(bitrixLocation.bitrixId));
     if (this.config.defaultRadius) body.set("radius", this.config.defaultRadius);
+
+    return this.request(`${this.config.apiBase}/locations/${clocksterId}`, {
+      method: "PUT",
+      body,
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    });
+  }
+
+  async updateLocationFromPayload(clocksterId, payload) {
+    const body = new URLSearchParams();
+    body.set("title", payload.title);
+    body.set("description", payload.description);
+    if (payload.latitude && payload.longitude) {
+      body.set("latitude", String(payload.latitude));
+      body.set("longitude", String(payload.longitude));
+    }
+    if (payload.radius) body.set("radius", String(payload.radius));
 
     return this.request(`${this.config.apiBase}/locations/${clocksterId}`, {
       method: "PUT",

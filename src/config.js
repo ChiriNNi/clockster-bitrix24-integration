@@ -57,7 +57,21 @@ export function getConfig({ bitrixOnly = false } = {}) {
       ).replace(/\/+$/, ""),
       token: clocksterToken,
       titleMax: Number(optional("CLOCKSTER_TITLE_MAX", "200")),
-      defaultRadius: optional("DEFAULT_LOCATION_RADIUS"),
+      defaultRadius: optional("DEFAULT_LOCATION_RADIUS", "100"),
+    },
+    deals: {
+      categoryId: optional("BITRIX_DEAL_CATEGORY_ID", "69"),
+      titleField: optional("BITRIX_DEAL_LOCATION_TITLE_FIELD", "TITLE"),
+      selectFields: optional(
+        "BITRIX_DEAL_SELECT_FIELDS",
+        "ID,TITLE,CATEGORY_ID,STAGE_ID,CLOSED,DATE_MODIFY",
+      ),
+    },
+    geocoder: {
+      provider: optional("GEOCODER_PROVIDER", "none").toLowerCase(),
+      twoGisKey: optional("GEOCODER_2GIS_KEY"),
+      googleKey: optional("GOOGLE_GEOCODING_KEY"),
+      countrySuffix: optional("GEOCODER_COUNTRY_SUFFIX", "Казахстан"),
     },
     syncMode: optional("SYNC_MODE", "dry-run"),
   };

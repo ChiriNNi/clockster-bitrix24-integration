@@ -46,6 +46,55 @@ npm run sync -- --only-bitrix-id=3959997
 npm run sync
 ```
 
+## Новая логика по сделкам реализации
+
+Новый MVP работает от сделок Bitrix CRM воронки `69`.
+
+Главное правило связи:
+
+```text
+Bitrix deal.ID = Clockster location.description
+Clockster location.title = Bitrix deal.TITLE
+```
+
+Поле `Адрес объекта*` не используется как источник истины.
+
+Безопасный аудит:
+
+```bash
+npm run audit:deals
+```
+
+Аудит ничего не меняет. Он раскладывает сделки по действиям:
+
+- `ok_existing_link` — локация уже связана и название совпадает.
+- `update_existing_title` — локация связана по `description`, но title надо обновить по `TITLE` сделки.
+- `link_exact_title` — локация уже есть с точным названием, но без `description`; можно привязать к сделке.
+- `review_possible_existing_location` — есть похожие локации; автоматом не трогаем.
+- `needs_geocode_review` — локации нет, нужен геокодинг.
+- `review_duplicate_clockster_description` — неоднозначность, нужно ручное решение.
+
+Реальный запуск обновления/привязки без создания новых локаций:
+
+```bash
+npm run sync:deals -- --sync
+```
+
+Создание новых локаций возможно только если настроен геокодинг и явно включено создание:
+
+```bash
+npm run sync:deals -- --sync --create
+```
+
+Без координат новая локация не создается.
+
+Для проверки одной сделки:
+
+```bash
+npm run audit:deals -- --deal-id=720795
+npm run sync:deals -- --deal-id=720795 --sync
+```
+
 После успешного запуска появится файл `data/mappings.json`, где хранится связь:
 
 ```json
