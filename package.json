@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "audit": "node src/auditComparison.js",
+    "audit:realization": "node src/auditRealizationComparison.js",
     "dry-run": "node src/index.js --dry-run",
     "sync": "node src/index.js --sync",
     "bitrix:test": "node src/index.js --bitrix-only"
