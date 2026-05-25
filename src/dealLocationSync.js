@@ -2,11 +2,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { BitrixDealClient } from "./bitrixDealClient.js";
 import { ClocksterClient } from "./clocksterClient.js";
-import { GeocoderClient } from "./geocoderClient.js";
 import { getConfig } from "./config.js";
 import { findFuzzyCandidates, indexClocksterLocations } from "./matchUtils.js";
 import { normalizeForCompare, normalizeTitle } from "./normalize.js";
-import { buildGeocodeQueryFromDealTitle } from "./titleParser.js";
 
 const args = new Set(process.argv.slice(2));
 const dryRun = !args.has("--sync");
@@ -17,7 +15,6 @@ const onlyDealId = getArg("--deal-id", "");
 const config = getConfig();
 const dealClient = new BitrixDealClient(config.bitrix, config.deals);
 const clocksterClient = new ClocksterClient(config.clockster);
-const geocoderClient = new GeocoderClient(config.geocoder);
 
 const deals = (await dealClient.getDeals())
   .filter((deal) => !onlyDealId || deal.dealId === onlyDealId);
@@ -30,8 +27,9 @@ const report = {
   options: {
     createEnabled,
     onlyDealId,
-    geocoderProvider: config.geocoder.provider,
-    geocoderEnabled: geocoderClient.isEnabled(),
+    latitudeField: config.deals.latitudeField,
+    longitudeField: config.deals.longitudeField,
+    locationUpdateDistanceMeters: config.locationUpdateDistanceMeters,
   },
   counts: {},
   actions: [],
@@ -49,14 +47,24 @@ for (const deal of deals) {
 }
 
 const executableActions = report.actions.filter((action) =>
-  ["update_existing_title", "link_exact_title", "create_location"].includes(action.action),
+  [
+    "update_existing_title",
+    "update_existing_coordinates",
+    "update_existing_location",
+    "link_exact_title",
+    "create_location",
+  ].includes(action.action),
 );
 const workItems = limit > 0 ? executableActions.slice(0, limit) : executableActions;
 
 if (!dryRun) {
   for (const action of workItems) {
     try {
-      if (action.action === "update_existing_title") {
+      if (
+        action.action === "update_existing_title" ||
+        action.action === "update_existing_coordinates" ||
+        action.action === "update_existing_location"
+      ) {
         await clocksterClient.updateLocationFromPayload(action.clocksterId, action.payload);
         report.updated.push(action);
       } else if (action.action === "link_exact_title") {
@@ -130,11 +138,21 @@ async function planDealAction(deal) {
     dealId: deal.dealId,
     dealTitle: title,
     stageId: deal.raw.STAGE_ID ?? "",
+    bitrixLatitude: deal.latitude,
+    bitrixLongitude: deal.longitude,
   };
 
   if (!title || title.length < 2) return { ...base, action: "skip_invalid_title", reason: "empty_or_short_title" };
   if (title.length > config.clockster.titleMax) {
     return { ...base, action: "skip_invalid_title", reason: `title_longer_than_${config.clockster.titleMax}` };
+  }
+  if (!hasBitrixCoordinates(deal)) {
+    return {
+      ...base,
+      action: "review_missing_bitrix_coordinates",
+      latitudeRaw: deal.latitudeRaw,
+      longitudeRaw: deal.longitudeRaw,
+    };
   }
 
   const linkedMatches = byRealizationId.get(deal.dealId) ?? [];
@@ -149,17 +167,37 @@ async function planDealAction(deal) {
   if (linkedMatches.length === 1) {
     const location = linkedMatches[0];
     const oldTitle = normalizeTitle(location.title);
-    if (normalizeForCompare(oldTitle) === normalizeForCompare(title)) {
-      return { ...base, action: "ok_existing_link", clocksterId: location.id };
+    const titleMatches = normalizeForCompare(oldTitle) === normalizeForCompare(title);
+    const coordinateDiff = coordinateDifference(location, deal);
+    const coordinatesMatch = coordinateDiff !== null && coordinateDiff <= config.locationUpdateDistanceMeters;
+
+    if (titleMatches && coordinatesMatch) {
+      return {
+        ...base,
+        action: "ok_existing_link",
+        clocksterId: location.id,
+        clocksterLatitude: parseCoordinate(location.latitude),
+        clocksterLongitude: parseCoordinate(location.longitude),
+        coordinateDiffMeters: coordinateDiff,
+      };
     }
+
+    const action = !titleMatches && !coordinatesMatch
+      ? "update_existing_location"
+      : titleMatches
+        ? "update_existing_coordinates"
+        : "update_existing_title";
 
     return {
       ...base,
-      action: "update_existing_title",
+      action,
       clocksterId: location.id,
       oldTitle,
       newTitle: title,
-      payload: payloadFromLocation(location, title, deal.dealId),
+      clocksterLatitude: parseCoordinate(location.latitude),
+      clocksterLongitude: parseCoordinate(location.longitude),
+      coordinateDiffMeters: coordinateDiff,
+      payload: payloadFromDeal(deal, location.radius),
     };
   }
 
@@ -171,7 +209,10 @@ async function planDealAction(deal) {
       ...base,
       action: "link_exact_title",
       clocksterId: location.id,
-      payload: payloadFromLocation(location, title, deal.dealId),
+      clocksterLatitude: parseCoordinate(location.latitude),
+      clocksterLongitude: parseCoordinate(location.longitude),
+      coordinateDiffMeters: coordinateDifference(location, deal),
+      payload: payloadFromDeal(deal, location.radius),
     };
   }
   if (exactMatches.length > 1) {
@@ -188,42 +229,24 @@ async function planDealAction(deal) {
       ...base,
       action: "review_possible_existing_location",
       candidates: fuzzyCandidates,
-    };
-  }
-
-  const geocodeQuery = buildGeocodeQueryFromDealTitle(title, config.geocoder.countrySuffix);
-  const geocode = await geocoderClient.geocode(geocodeQuery);
-  if (geocode.status !== "ok") {
-    return {
-      ...base,
-      action: "needs_geocode_review",
-      geocodeQuery,
-      geocode,
+      plannedPayload: payloadFromDeal(deal),
     };
   }
 
   return {
     ...base,
     action: "create_location",
-    geocodeQuery,
-    geocode,
-    payload: {
-      title,
-      description: deal.dealId,
-      latitude: geocode.latitude,
-      longitude: geocode.longitude,
-      radius: config.clockster.defaultRadius,
-    },
+    payload: payloadFromDeal(deal),
   };
 }
 
-function payloadFromLocation(location, title, dealId) {
+function payloadFromDeal(deal, radius = config.clockster.defaultRadius) {
   return {
-    title,
-    description: dealId,
-    latitude: location.latitude ?? "",
-    longitude: location.longitude ?? "",
-    radius: location.radius ?? config.clockster.defaultRadius,
+    title: normalizeTitle(deal.title),
+    description: deal.dealId,
+    latitude: deal.latitude,
+    longitude: deal.longitude,
+    radius,
   };
 }
 
@@ -238,6 +261,36 @@ function toCandidate(location) {
   };
 }
 
+function hasBitrixCoordinates(deal) {
+  return Number.isFinite(deal.latitude) && Number.isFinite(deal.longitude);
+}
+
+function parseCoordinate(value) {
+  const number = Number(String(value ?? "").replace(",", ".").trim());
+  return Number.isFinite(number) ? number : null;
+}
+
+function coordinateDifference(location, deal) {
+  const latitude = parseCoordinate(location.latitude);
+  const longitude = parseCoordinate(location.longitude);
+  if (latitude === null || longitude === null || !hasBitrixCoordinates(deal)) return null;
+  return Math.round(distanceMeters(latitude, longitude, deal.latitude, deal.longitude));
+}
+
+function distanceMeters(lat1, lon1, lat2, lon2) {
+  const earthRadiusMeters = 6371000;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function toRadians(degrees) {
+  return (degrees * Math.PI) / 180;
+}
+
 function getArg(name, fallback) {
   const prefix = `${name}=`;
   for (let index = 2; index < process.argv.length; index += 1) {
@@ -249,7 +302,20 @@ function getArg(name, fallback) {
 }
 
 function toCsv(items) {
-  const headers = ["dealId", "action", "dealTitle", "clocksterId", "oldTitle", "newTitle", "geocodeQuery", "reason"];
+  const headers = [
+    "dealId",
+    "action",
+    "dealTitle",
+    "clocksterId",
+    "oldTitle",
+    "newTitle",
+    "bitrixLatitude",
+    "bitrixLongitude",
+    "clocksterLatitude",
+    "clocksterLongitude",
+    "coordinateDiffMeters",
+    "reason",
+  ];
   const lines = [headers.join(",")];
   for (const item of items) {
     lines.push(headers.map((header) => csvEscape(item[header])).join(","));
@@ -272,8 +338,11 @@ function toHtml(data) {
       action.clocksterId ?? "",
       action.oldTitle ?? "",
       action.newTitle ?? "",
-      action.geocodeQuery ?? "",
-      action.geocode?.status ?? "",
+      action.bitrixLatitude ?? "",
+      action.bitrixLongitude ?? "",
+      action.clocksterLatitude ?? "",
+      action.clocksterLongitude ?? "",
+      action.coordinateDiffMeters ?? "",
       action.candidates?.length ? JSON.stringify(action.candidates) : "",
       action.reason ?? "",
     ].map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`)
@@ -301,7 +370,8 @@ function toHtml(data) {
     <thead>
       <tr>
         <th>action</th><th>dealId</th><th>dealTitle</th><th>clocksterId</th><th>oldTitle</th>
-        <th>newTitle</th><th>geocodeQuery</th><th>geocodeStatus</th><th>candidates</th><th>reason</th>
+        <th>newTitle</th><th>bitrixLatitude</th><th>bitrixLongitude</th><th>clocksterLatitude</th>
+        <th>clocksterLongitude</th><th>coordinateDiffMeters</th><th>candidates</th><th>reason</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>

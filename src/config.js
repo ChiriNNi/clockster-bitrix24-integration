@@ -62,9 +62,15 @@ export function getConfig({ bitrixOnly = false } = {}) {
     deals: {
       categoryId: optional("BITRIX_DEAL_CATEGORY_ID", "69"),
       titleField: optional("BITRIX_DEAL_LOCATION_TITLE_FIELD", "TITLE"),
+      latitudeField: optional("BITRIX_DEAL_LATITUDE_FIELD", "UF_CRM_1732276400585"),
+      longitudeField: optional("BITRIX_DEAL_LONGITUDE_FIELD", "UF_CRM_1732276407859"),
+      latitudeMin: Number(optional("BITRIX_DEAL_LATITUDE_MIN", "40")),
+      latitudeMax: Number(optional("BITRIX_DEAL_LATITUDE_MAX", "56.5")),
+      longitudeMin: Number(optional("BITRIX_DEAL_LONGITUDE_MIN", "46")),
+      longitudeMax: Number(optional("BITRIX_DEAL_LONGITUDE_MAX", "88.5")),
       selectFields: optional(
         "BITRIX_DEAL_SELECT_FIELDS",
-        "ID,TITLE,CATEGORY_ID,STAGE_ID,CLOSED,DATE_MODIFY",
+        "ID,TITLE,CATEGORY_ID,STAGE_ID,CLOSED,DATE_MODIFY,UF_CRM_1732276400585,UF_CRM_1732276407859",
       ),
     },
     geocoder: {
@@ -74,5 +80,6 @@ export function getConfig({ bitrixOnly = false } = {}) {
       countrySuffix: optional("GEOCODER_COUNTRY_SUFFIX", "Казахстан"),
     },
     syncMode: optional("SYNC_MODE", "dry-run"),
+    locationUpdateDistanceMeters: Number(optional("LOCATION_UPDATE_DISTANCE_METERS", "50")),
   };
 }

@@ -1,122 +1,176 @@
 # Clockster Bitrix Sync
 
-Синхронизатор еженедельно берет актуальные адреса из списка Bitrix `Адрес объекта` и приводит список локаций Clockster к такому же набору названий.
+Синхронизатор локаций Clockster с актуальными сделками Bitrix CRM из воронки реализации.
 
-Источник в Bitrix:
+## Главная логика
 
-- список: `115`
-- поле названия локации: `NAME` (`Адрес объекта`)
-- статус актуальности: `PROPERTY_1249`
-- актуальный статус: `4467` (`Актуальный (Реализация)`)
+Источник истины: Bitrix CRM, сделки воронки `69`.
 
-Clockster API:
+Правила связи:
 
-- base URL: `https://api.clockster.com/company/v2`
-- локации: `GET/POST/PUT /locations`
-- авторизация: `Authorization: Bearer {ACCESS-TOKEN}`
+```text
+Clockster location.description = Bitrix deal.ID
+Clockster location.title = Bitrix deal.TITLE
+Clockster location.latitude = Bitrix deal.UF_CRM_1732276400585
+Clockster location.longitude = Bitrix deal.UF_CRM_1732276407859
+```
+
+Поле `Адрес объекта` не используется как источник истины. Геокодинг через 2ГИС/Google не нужен для основной логики, потому что координаты уже есть в Bitrix.
+
+## Безопасность
+
+- Скрипт ничего не удаляет из Clockster.
+- По умолчанию `npm run audit:deals` работает в dry-run и только пишет отчет.
+- Новые локации создаются только при явном запуске `--sync --create`.
+- Если найдены похожие локации без `description`, скрипт не создает дубль автоматически, а отправляет сделку в ручную проверку.
+- Если в Clockster несколько локаций с одним `description`, скрипт не выбирает сам, а отправляет в ручную проверку.
 
 ## Настройка
 
-1. Установить Node.js 20+ на сервер.
+1. Установить Node.js 20+.
 2. Скопировать `.env.example` в `.env`.
 3. Заполнить `BITRIX_WEBHOOK_URL` и `CLOCKSTER_TOKEN`.
 
 ```bash
 cp .env.example .env
-npm run bitrix:test
-npm run dry-run
+npm install
 ```
 
-`dry-run` ничего не меняет в Clockster, только создает отчет в `logs/`.
-
-## Проверка на одном адресе
-
-Чтобы не менять массово Clockster, можно ограничить запуск одним или несколькими Bitrix ID:
-
-```bash
-npm run dry-run -- --only-bitrix-id=3959997
-npm run sync -- --only-bitrix-id=3959997
-```
-
-Повторный `dry-run` по тому же ID должен показать `Created: 0` и `Updated: 0`.
-
-## Реальный запуск
-
-```bash
-npm run sync
-```
-
-## Новая логика по сделкам реализации
-
-Новый MVP работает от сделок Bitrix CRM воронки `69`.
-
-Главное правило связи:
+Ключевые настройки:
 
 ```text
-Bitrix deal.ID = Clockster location.description
-Clockster location.title = Bitrix deal.TITLE
+BITRIX_DEAL_CATEGORY_ID=69
+BITRIX_DEAL_LOCATION_TITLE_FIELD=TITLE
+BITRIX_DEAL_LATITUDE_FIELD=UF_CRM_1732276400585
+BITRIX_DEAL_LONGITUDE_FIELD=UF_CRM_1732276407859
+BITRIX_DEAL_LATITUDE_MIN=40
+BITRIX_DEAL_LATITUDE_MAX=56.5
+BITRIX_DEAL_LONGITUDE_MIN=46
+BITRIX_DEAL_LONGITUDE_MAX=88.5
+DEFAULT_LOCATION_RADIUS=100
+LOCATION_UPDATE_DISTANCE_METERS=50
+DEAL_SYNC_CREATE_ENABLED=false
 ```
 
-Поле `Адрес объекта*` не используется как источник истины.
+`LOCATION_UPDATE_DISTANCE_METERS` задает порог отличия координат. Если точка Clockster отличается от Bitrix больше чем на это расстояние, скрипт планирует обновление координат.
 
-Безопасный аудит:
+Диапазоны `BITRIX_DEAL_*_MIN/MAX` защищают от мусорных координат вроде `0,0`. По умолчанию выставлен примерный диапазон Казахстана.
+
+## Проверка
+
+Полный аудит без изменений:
 
 ```bash
 npm run audit:deals
 ```
 
-Аудит ничего не меняет. Он раскладывает сделки по действиям:
+Проверка одной сделки:
 
-- `ok_existing_link` — локация уже связана и название совпадает.
-- `update_existing_title` — локация связана по `description`, но title надо обновить по `TITLE` сделки.
-- `link_exact_title` — локация уже есть с точным названием, но без `description`; можно привязать к сделке.
-- `review_possible_existing_location` — есть похожие локации; автоматом не трогаем.
-- `needs_geocode_review` — локации нет, нужен геокодинг.
-- `review_duplicate_clockster_description` — неоднозначность, нужно ручное решение.
+```bash
+npm run audit:deals -- --deal-id=556365
+```
 
-Реальный запуск обновления/привязки без создания новых локаций:
+После запуска отчеты появляются в `logs/`:
+
+```text
+deal-sync-*.json
+deal-sync-*.csv
+deal-sync-*.html
+```
+
+## Действия в отчете
+
+```text
+ok_existing_link
+```
+
+Локация уже связана по `description`, название и координаты совпадают в пределах порога.
+
+```text
+update_existing_title
+```
+
+Локация связана, координаты нормальные, но название отличается от `TITLE` сделки.
+
+```text
+update_existing_coordinates
+```
+
+Локация связана, название совпадает, но координаты отличаются от Bitrix больше порога.
+
+```text
+update_existing_location
+```
+
+Локация связана, но надо обновить и название, и координаты.
+
+```text
+link_exact_title
+```
+
+В Clockster уже есть локация с точным названием, но без `description`. Скрипт может привязать ее к сделке и поставить координаты из Bitrix.
+
+```text
+review_possible_existing_location
+```
+
+Нашлись похожие локации. Автоматически не трогаем, чтобы не создать дубль и не привязать не туда.
+
+```text
+create_location
+```
+
+Похожих локаций нет, координаты Bitrix валидны, можно создать новую локацию.
+
+```text
+review_duplicate_clockster_description
+```
+
+В Clockster несколько локаций с одним `description`. Нужно ручное решение.
+
+```text
+review_missing_bitrix_coordinates
+```
+
+У сделки нет валидных координат. Создавать нельзя.
+
+## Реальный запуск
+
+Обновить и привязать существующие локации, но не создавать новые:
 
 ```bash
 npm run sync:deals -- --sync
 ```
 
-Создание новых локаций возможно только если настроен геокодинг и явно включено создание:
+Создать новые локации тоже:
 
 ```bash
 npm run sync:deals -- --sync --create
 ```
 
-Без координат новая локация не создается.
-
-Для проверки одной сделки:
+Ограничить количество реальных действий:
 
 ```bash
-npm run audit:deals -- --deal-id=720795
-npm run sync:deals -- --deal-id=720795 --sync
+npm run sync:deals -- --sync --limit=10
 ```
 
-После успешного запуска появится файл `data/mappings.json`, где хранится связь:
+Запустить одну сделку:
 
-```json
-{
-  "bitrixToClockster": {
-    "3959997": 123
-  }
-}
+```bash
+npm run sync:deals -- --deal-id=556365 --sync
 ```
 
 ## Расписание
 
-Для запуска каждый понедельник в 09:00:
+Пример cron для запуска каждый понедельник в 09:00:
 
 ```cron
-0 9 * * 1 cd /path/to/clockster-bitrix-sync && /usr/bin/npm run sync >> logs/cron.log 2>&1
+TZ=Asia/Qyzylorda
+0 9 * * 1 cd /path/to/clockster-bitrix-sync && /usr/bin/npm run sync:deals -- --sync --create >> logs/cron.log 2>&1
 ```
 
-Если сервер работает не в нужном часовом поясе, задайте `TZ=Asia/Qyzylorda` в окружении cron или сервера.
+Перед включением cron обязательно прогнать:
 
-## Безопасность
-
-- Не коммитить `.env`.
-- Первый боевой запуск делать только после проверки `npm run dry-run`.
-- Локации, которые есть только в Clockster, не удаляются автоматически. Они попадают в отчет `onlyInClockster`.
+```bash
+npm run audit:deals
+```

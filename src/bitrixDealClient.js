@@ -32,6 +32,18 @@ export class BitrixDealClient {
         deals.push({
           dealId: String(deal.ID),
           title,
+          latitude: parseCoordinate(
+            deal[this.dealConfig.latitudeField],
+            this.dealConfig.latitudeMin,
+            this.dealConfig.latitudeMax,
+          ),
+          longitude: parseCoordinate(
+            deal[this.dealConfig.longitudeField],
+            this.dealConfig.longitudeMin,
+            this.dealConfig.longitudeMax,
+          ),
+          latitudeRaw: deal[this.dealConfig.latitudeField] ?? "",
+          longitudeRaw: deal[this.dealConfig.longitudeField] ?? "",
           raw: deal,
         });
       }
@@ -42,6 +54,12 @@ export class BitrixDealClient {
 
     return deals;
   }
+}
+
+function parseCoordinate(value, min, max) {
+  const number = Number(String(value ?? "").replace(",", ".").trim());
+  if (!Number.isFinite(number) || number < min || number > max) return null;
+  return number;
 }
 
 function pause(ms) {
