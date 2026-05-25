@@ -330,8 +330,32 @@ function csvEscape(value) {
 }
 
 function toHtml(data) {
+  const actionCounts = data.actions.reduce((acc, action) => {
+    acc[action.action] = (acc[action.action] ?? 0) + 1;
+    return acc;
+  }, {});
+  const actionButtons = [
+    ["all", "Все", data.actions.length],
+    ...Object.entries(actionCounts).sort(([left], [right]) => left.localeCompare(right)),
+  ]
+    .map(([action, labelOrCount, maybeCount]) => {
+      const label = action === "all" ? labelOrCount : action;
+      const count = action === "all" ? maybeCount : labelOrCount;
+      return `<button class="filter-btn${action === "all" ? " active" : ""}" type="button" data-action="${escapeHtml(action)}">${escapeHtml(label)} <span>${escapeHtml(count)}</span></button>`;
+    })
+    .join("\n");
+
   const rows = data.actions
-    .map((action) => `<tr>${[
+    .map((action) => `<tr data-action="${escapeHtml(action.action)}" data-search="${escapeHtml([
+      action.action,
+      action.dealId,
+      action.dealTitle,
+      action.clocksterId ?? "",
+      action.oldTitle ?? "",
+      action.newTitle ?? "",
+      action.candidates?.length ? JSON.stringify(action.candidates) : "",
+      action.reason ?? "",
+    ].join(" ").toLowerCase())}">${[
       action.action,
       action.dealId,
       action.dealTitle,
@@ -354,18 +378,39 @@ function toHtml(data) {
   <meta charset="utf-8">
   <title>Deal location sync dry-run</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 24px; color: #1f2937; }
-    h1 { font-size: 22px; }
+    body { font-family: Arial, sans-serif; margin: 24px; color: #1f2937; background: #fff; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    .meta { color: #6b7280; margin-bottom: 16px; }
+    .toolbar { position: sticky; top: 0; z-index: 3; background: #fff; padding: 0 0 12px; border-bottom: 1px solid #e5e7eb; }
+    .summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .filter-btn { border: 1px solid #d1d5db; border-radius: 7px; background: #f9fafb; color: #1f2937; padding: 7px 10px; cursor: pointer; font-size: 13px; }
+    .filter-btn:hover { background: #eef2ff; }
+    .filter-btn.active { background: #2563eb; border-color: #2563eb; color: white; }
+    .filter-btn span { opacity: 0.75; margin-left: 4px; }
+    .search { width: min(720px, 100%); box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 7px; padding: 10px 12px; font-size: 14px; }
+    .visible-count { margin-top: 8px; color: #6b7280; font-size: 13px; }
+    details { margin: 12px 0; }
     pre { background: #f3f4f6; padding: 12px; border-radius: 8px; white-space: pre-wrap; }
     table { border-collapse: collapse; width: 100%; font-size: 13px; }
-    th { position: sticky; top: 0; background: #eef2ff; }
+    th { position: sticky; top: 125px; background: #eef2ff; z-index: 2; }
     th, td { border: 1px solid #d1d5db; padding: 8px; vertical-align: top; }
     tr:nth-child(even) { background: #f9fafb; }
+    tr.hidden { display: none; }
+    code { color: #4b5563; }
   </style>
 </head>
 <body>
   <h1>Deal location sync</h1>
-  <pre>${escapeHtml(JSON.stringify(data.counts, null, 2))}</pre>
+  <div class="meta">Mode: <code>${escapeHtml(data.mode)}</code> · Generated: <code>${escapeHtml(data.generatedAt)}</code></div>
+  <div class="toolbar">
+    <input class="search" id="search" type="search" placeholder="Поиск по Bitrix ID, названию, Clockster ID, description...">
+    <div class="summary" id="filters">${actionButtons}</div>
+    <div class="visible-count" id="visibleCount"></div>
+  </div>
+  <details>
+    <summary>Сводка counts</summary>
+    <pre>${escapeHtml(JSON.stringify(data.counts, null, 2))}</pre>
+  </details>
   <table>
     <thead>
       <tr>
@@ -376,6 +421,36 @@ function toHtml(data) {
     </thead>
     <tbody>${rows}</tbody>
   </table>
+  <script>
+    const rows = Array.from(document.querySelectorAll("tbody tr"));
+    const buttons = Array.from(document.querySelectorAll(".filter-btn"));
+    const search = document.getElementById("search");
+    const visibleCount = document.getElementById("visibleCount");
+    let activeAction = "all";
+
+    function applyFilters() {
+      const query = search.value.trim().toLowerCase();
+      let shown = 0;
+      for (const row of rows) {
+        const actionMatches = activeAction === "all" || row.dataset.action === activeAction;
+        const queryMatches = !query || row.dataset.search.includes(query);
+        const visible = actionMatches && queryMatches;
+        row.classList.toggle("hidden", !visible);
+        if (visible) shown += 1;
+      }
+      visibleCount.textContent = \`Показано: \${shown} из \${rows.length}\`;
+    }
+
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        activeAction = button.dataset.action;
+        for (const item of buttons) item.classList.toggle("active", item === button);
+        applyFilters();
+      });
+    }
+    search.addEventListener("input", applyFilters);
+    applyFilters();
+  </script>
 </body>
 </html>`;
 }
