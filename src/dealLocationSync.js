@@ -30,6 +30,8 @@ const report = {
     latitudeField: config.deals.latitudeField,
     longitudeField: config.deals.longitudeField,
     locationUpdateDistanceMeters: config.locationUpdateDistanceMeters,
+    nearbyReviewDistanceMeters: config.nearbyReviewDistanceMeters,
+    fuzzyReviewMinScore: config.fuzzyReviewMinScore,
   },
   counts: {},
   actions: [],
@@ -223,7 +225,23 @@ async function planDealAction(deal) {
     };
   }
 
-  const fuzzyCandidates = findFuzzyCandidates(title, clocksterLocations, { minScore: 0.82, limit: 5 });
+  const nearbyCandidates = findNearbyCandidates(deal, clocksterLocations, {
+    maxDistanceMeters: config.nearbyReviewDistanceMeters,
+    limit: 8,
+  });
+  if (nearbyCandidates.length) {
+    return {
+      ...base,
+      action: "review_nearby_clockster_location",
+      candidates: nearbyCandidates,
+      plannedPayload: payloadFromDeal(deal),
+    };
+  }
+
+  const fuzzyCandidates = findFuzzyCandidates(title, clocksterLocations, {
+    minScore: config.fuzzyReviewMinScore,
+    limit: 5,
+  });
   if (fuzzyCandidates.length) {
     return {
       ...base,
@@ -275,6 +293,64 @@ function coordinateDifference(location, deal) {
   const longitude = parseCoordinate(location.longitude);
   if (latitude === null || longitude === null || !hasBitrixCoordinates(deal)) return null;
   return Math.round(distanceMeters(latitude, longitude, deal.latitude, deal.longitude));
+}
+
+function findNearbyCandidates(deal, locations, { maxDistanceMeters, limit }) {
+  if (!hasBitrixCoordinates(deal)) return [];
+  const dealTokens = importantTokenSet(deal.title);
+  return locations
+    .map((location) => {
+      const latitude = parseCoordinate(location.latitude);
+      const longitude = parseCoordinate(location.longitude);
+      if (latitude === null || longitude === null) return null;
+      const distance = Math.round(distanceMeters(deal.latitude, deal.longitude, latitude, longitude));
+      if (distance > maxDistanceMeters) return null;
+      const sharedTokens = [...dealTokens].filter((token) => importantTokenSet(location.title).has(token));
+      if (distance > 100 && sharedTokens.length < 2) return null;
+      return {
+        ...toCandidate(location),
+        distanceMeters: distance,
+        sharedTokens,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.distanceMeters - right.distanceMeters)
+    .slice(0, limit);
+}
+
+function importantTokenSet(value) {
+  const stopWords = new Set([
+    "ао",
+    "а",
+    "г",
+    "го",
+    "город",
+    "ул",
+    "улица",
+    "дом",
+    "д",
+    "мкр",
+    "микрорайон",
+    "тоо",
+    "тoo",
+    "дб",
+    "банк",
+    "прилегайка",
+    "прилегающая",
+    "территория",
+    "фи",
+    "для",
+    "офис",
+    "отделение",
+  ]);
+
+  return new Set(
+    normalizeForCompare(value)
+      .replace(/[^\p{L}\p{N}/]+/gu, " ")
+      .split(" ")
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2 && !stopWords.has(token)),
+  );
 }
 
 function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -355,21 +431,21 @@ function toHtml(data) {
       action.newTitle ?? "",
       action.candidates?.length ? JSON.stringify(action.candidates) : "",
       action.reason ?? "",
-    ].join(" ").toLowerCase())}">${[
-      action.action,
-      action.dealId,
-      action.dealTitle,
-      action.clocksterId ?? "",
-      action.oldTitle ?? "",
-      action.newTitle ?? "",
-      action.bitrixLatitude ?? "",
-      action.bitrixLongitude ?? "",
-      action.clocksterLatitude ?? "",
-      action.clocksterLongitude ?? "",
-      action.coordinateDiffMeters ?? "",
-      action.candidates?.length ? JSON.stringify(action.candidates) : "",
-      action.reason ?? "",
-    ].map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`)
+    ].join(" ").toLowerCase())}">
+      <td>${escapeHtml(action.action)}</td>
+      <td>${escapeHtml(action.dealId)}</td>
+      <td>${escapeHtml(action.dealTitle)}</td>
+      <td>${escapeHtml(action.clocksterId ?? "")}</td>
+      <td>${escapeHtml(action.oldTitle ?? "")}</td>
+      <td>${escapeHtml(action.newTitle ?? "")}</td>
+      <td>${escapeHtml(action.bitrixLatitude ?? "")}</td>
+      <td>${escapeHtml(action.bitrixLongitude ?? "")}</td>
+      <td>${escapeHtml(action.clocksterLatitude ?? "")}</td>
+      <td>${escapeHtml(action.clocksterLongitude ?? "")}</td>
+      <td>${escapeHtml(action.coordinateDiffMeters ?? "")}</td>
+      <td>${candidatesHtml(action.candidates)}</td>
+      <td>${escapeHtml(action.reason ?? "")}</td>
+    </tr>`)
     .join("\n");
 
   return `<!doctype html>
@@ -395,6 +471,8 @@ function toHtml(data) {
     th { position: sticky; top: 125px; background: #eef2ff; z-index: 2; }
     th, td { border: 1px solid #d1d5db; padding: 8px; vertical-align: top; }
     tr:nth-child(even) { background: #f9fafb; }
+    .inner { font-size: 12px; margin: 0; }
+    .inner th { position: static; background: #f3f4f6; }
     tr.hidden { display: none; }
     code { color: #4b5563; }
   </style>
@@ -453,6 +531,27 @@ function toHtml(data) {
   </script>
 </body>
 </html>`;
+}
+
+function candidatesHtml(candidates = []) {
+  if (!candidates.length) return "";
+  const rows = candidates
+    .map((candidate) => `<tr>
+      <td>${escapeHtml(candidate.clocksterId ?? "")}</td>
+      <td>${escapeHtml(candidate.clocksterTitle ?? "")}</td>
+      <td>${escapeHtml(candidate.description ?? "")}</td>
+      <td>${escapeHtml([candidate.latitude, candidate.longitude].filter((value) => value !== "").join(", "))}</td>
+      <td>${escapeHtml(candidate.radius ?? "")}</td>
+      <td>${escapeHtml(candidate.score ?? "")}</td>
+      <td>${escapeHtml(candidate.distanceMeters ?? "")}</td>
+      <td>${escapeHtml(candidate.sharedTokens?.join(", ") ?? "")}</td>
+    </tr>`)
+    .join("");
+
+  return `<table class="inner">
+    <thead><tr><th>Clockster ID</th><th>title</th><th>description</th><th>coords</th><th>radius</th><th>score</th><th>distance m</th><th>shared tokens</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 function escapeHtml(value) {

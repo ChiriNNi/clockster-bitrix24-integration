@@ -49,10 +49,16 @@ BITRIX_DEAL_LONGITUDE_MIN=46
 BITRIX_DEAL_LONGITUDE_MAX=88.5
 DEFAULT_LOCATION_RADIUS=100
 LOCATION_UPDATE_DISTANCE_METERS=50
+CLOCKSTER_NEARBY_REVIEW_DISTANCE_METERS=500
+CLOCKSTER_FUZZY_REVIEW_MIN_SCORE=0.76
 DEAL_SYNC_CREATE_ENABLED=false
 ```
 
 `LOCATION_UPDATE_DISTANCE_METERS` задает порог отличия координат. Если точка Clockster отличается от Bitrix больше чем на это расстояние, скрипт планирует обновление координат.
+
+`CLOCKSTER_NEARBY_REVIEW_DISTANCE_METERS` защищает от дублей при создании. Если у сделки нет строгой привязки, но рядом с координатами Bitrix уже есть локация Clockster в этом радиусе, скрипт отправляет ее в ручную проверку вместо создания.
+
+`CLOCKSTER_FUZZY_REVIEW_MIN_SCORE` задает минимальную похожесть названий для ручной проверки. Это помогает ловить варианты вроде `прилегайка`, `(фи)`, город добавлен/убран, но адрес фактически тот же.
 
 Диапазоны `BITRIX_DEAL_*_MIN/MAX` защищают от мусорных координат вроде `0,0`. По умолчанию выставлен примерный диапазон Казахстана.
 
@@ -115,6 +121,12 @@ review_possible_existing_location
 ```
 
 Нашлись похожие локации. Автоматически не трогаем, чтобы не создать дубль и не привязать не туда.
+
+```text
+review_nearby_clockster_location
+```
+
+Строгой привязки нет, но рядом с координатами Bitrix уже есть Clockster-локация. Автоматически не создаем, потому что это может быть тот же объект, прилегающая территория или другая точка входа.
 
 ```text
 create_location

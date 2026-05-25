@@ -81,5 +81,7 @@ export function getConfig({ bitrixOnly = false } = {}) {
     },
     syncMode: optional("SYNC_MODE", "dry-run"),
     locationUpdateDistanceMeters: Number(optional("LOCATION_UPDATE_DISTANCE_METERS", "50")),
+    nearbyReviewDistanceMeters: Number(optional("CLOCKSTER_NEARBY_REVIEW_DISTANCE_METERS", "500")),
+    fuzzyReviewMinScore: Number(optional("CLOCKSTER_FUZZY_REVIEW_MIN_SCORE", "0.76")),
   };
 }
